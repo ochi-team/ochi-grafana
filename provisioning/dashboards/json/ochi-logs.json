@@ -1,0 +1,72 @@
+{
+  "id": null,
+  "uid": "ochi-logs-overview",
+  "title": "Ochi Logs",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["ochi", "logs"],
+  "templating": {
+    "list": [
+      {
+        "name": "tags",
+        "type": "textbox",
+        "label": "Tags",
+        "hide": 0,
+        "query": "tag1=alpha,tag2=beta",
+        "current": {
+          "selected": false,
+          "text": "tag1=alpha,tag2=beta",
+          "value": "tag1=alpha,tag2=beta"
+        }
+      },
+      {
+        "name": "fields",
+        "type": "textbox",
+        "label": "Fields",
+        "hide": 0,
+        "query": "field1=x,field2=x",
+        "current": {
+          "selected": false,
+          "text": "field1=x,field2=x",
+          "value": "field1=x,field2=x"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Logs",
+      "type": "logs",
+      "gridPos": {
+        "h": 24,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "ochi-logs-datasource",
+            "uid": "ochi-logs"
+          },
+          "tags": "$tags",
+          "fields": "$fields"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ],
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": ["@grafana/eslint-config"],
+  "root": true,
+  "parserOptions": {
+    "project": ["./tsconfig.json"]
+  },
+  "rules": {
+    "@typescript-eslint/naming-convention": "off"
+  }
+}

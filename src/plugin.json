@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "Ochi Logs",
+  "id": "ochi-logs-datasource",
+  "module": "module.js",
+  "info": {
+    "description": "Datasource for Ochi /query logs API",
+    "author": {
+      "name": "Ochi"
+    },
+    "keywords": ["logs", "ochi"],
+    "version": "0.1.0",
+    "updated": "2026-04-23"
+  },
+  "logs": true,
+  "metrics": false,
+  "tracing": false,
+  "annotations": false,
+  "backend": false,
+  "dependencies": {
+    "grafanaDependency": ">=10.4.0",
+    "plugins": []
+  }
+}

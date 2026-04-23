@@ -1,0 +1,10 @@
+apiVersion: 1
+
+datasources:
+  - name: Ochi Logs
+    uid: ochi-logs
+    type: ochi-logs-datasource
+    access: proxy
+    url: http://host.docker.internal:9014
+    isDefault: false
+    editable: true
