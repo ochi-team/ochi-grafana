@@ -1,13 +1,11 @@
 import { DataQuery, DataSourceJsonData } from '@grafana/data';
 
 export interface OchiQuery extends DataQuery {
-  tags: string;
-  fields: string;
+  query: string;
 }
 
 export const defaultQuery: Partial<OchiQuery> = {
-  tags: '',
-  fields: '',
+  query: '[-15m,now] {env=prod}',
 };
 
 export interface OchiDataSourceOptions extends DataSourceJsonData {}

@@ -12,15 +12,7 @@ import {
 import { getBackendSrv } from '@grafana/runtime';
 import { firstValueFrom, from, map, mergeMap, toArray } from 'rxjs';
 
-import { parsePairs } from './parsing';
 import { OchiApiField, OchiApiLine, OchiDataSourceOptions, OchiQuery, defaultQuery } from './types';
-
-interface OchiQueryPayload {
-  start: number;
-  end: number;
-  tags: OchiApiField[];
-  fields: OchiApiField[];
-}
 
 function nsToMs(ns: number): number {
   return Math.floor(ns / 1_000_000);
@@ -60,26 +52,26 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
             return null;
           }
 
-          const tags = parsePairs(query.tags);
-          const fields = parsePairs(query.fields);
-
-          const payload: OchiQueryPayload = {
-            start: options.range.from.valueOf() * 1_000_000,
-            end: options.range.to.valueOf() * 1_000_000,
-            tags,
-            fields,
-          };
+          const payload = query.query.trim();
+          if (!payload) {
+            return null;
+          }
 
           const lines = await firstValueFrom(
             getBackendSrv().fetch<OchiApiLine[]>({
               method: 'POST',
               url: `${this.baseUrl}/query`,
               data: payload,
+              headers: {
+                'content-type': 'application/loql',
+              },
             }),
           );
 
           const rows = lines.data;
-          const displayFieldNames = [...new Set([...tags.map((f) => f.key), ...fields.map((f) => f.key)])];
+          const displayFieldNames = [...new Set(rows.flatMap((row) => row.fields.map((field) => field.key)))]
+            .filter((key) => key.length > 0)
+            .sort((a, b) => a.localeCompare(b));
 
           const frame = new MutableDataFrame({
             refId: target.refId,

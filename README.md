@@ -53,5 +53,4 @@ Your Ochi server should be listening on host port `9014` and serving:
 
 The dashboard contains one Logs panel with textbox variables:
 
-- `tags` (example: `tag1=alpha,tag2=beta`)
-- `fields` (example: `field1=x,field2=x`)
+- `query` (example: `[-15m,now] {env=prod AND service=web} status=200`)

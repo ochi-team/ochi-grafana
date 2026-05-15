@@ -10,27 +10,15 @@
   "templating": {
     "list": [
       {
-        "name": "tags",
+        "name": "query",
         "type": "textbox",
-        "label": "Tags",
+        "label": "Query",
         "hide": 0,
-        "query": "tag1=alpha,tag2=beta",
+        "query": "[-15m,now] {env=prod AND service=web}",
         "current": {
           "selected": false,
-          "text": "tag1=alpha,tag2=beta",
-          "value": "tag1=alpha,tag2=beta"
-        }
-      },
-      {
-        "name": "fields",
-        "type": "textbox",
-        "label": "Fields",
-        "hide": 0,
-        "query": "field1=x,field2=x",
-        "current": {
-          "selected": false,
-          "text": "field1=x,field2=x",
-          "value": "field1=x,field2=x"
+          "text": "[-15m,now] {env=prod AND service=web}",
+          "value": "[-15m,now] {env=prod AND service=web}"
         }
       }
     ]
@@ -53,8 +41,7 @@
             "type": "ochi-logs-datasource",
             "uid": "ochi-logs"
           },
-          "tags": "$tags",
-          "fields": "$fields"
+          "query": "$query"
         }
       ],
       "options": {

@@ -11,33 +11,19 @@ type Props = QueryEditorProps<DataSource, OchiQuery, OchiDataSourceOptions>;
 export function QueryEditor({ query, onChange, onRunQuery }: Props) {
   const q = { ...defaultQuery, ...query };
 
-  const onTagsChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...q, tags: event.target.value });
-    onRunQuery();
-  };
-
-  const onFieldsChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...q, fields: event.target.value });
+  const onQueryChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onChange({ ...q, query: event.target.value });
     onRunQuery();
   };
 
   return (
     <>
-      <InlineField label="Tags" labelWidth={16} tooltip="Comma-separated key=value list">
+      <InlineField label="Query" labelWidth={16} tooltip="Ochi query language expression">
         <Input
-          value={q.tags}
-          onChange={onTagsChange}
+          value={q.query}
+          onChange={onQueryChange}
           width={64}
-          placeholder="tag1=alpha,tag2=beta"
-        />
-      </InlineField>
-
-      <InlineField label="Fields" labelWidth={16} tooltip="Comma-separated key=value list">
-        <Input
-          value={q.fields}
-          onChange={onFieldsChange}
-          width={64}
-          placeholder="field1=x,field2=x"
+          placeholder="[-15m,now] {env=prod AND service=web} status=200"
         />
       </InlineField>
     </>
