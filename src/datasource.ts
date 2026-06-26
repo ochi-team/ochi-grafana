@@ -1,13 +1,19 @@
 import {
   CoreApp,
-  DataFrame,
-  DataQueryRequest,
-  DataQueryResponse,
   DataSourceApi,
-  DataSourceInstanceSettings,
   DataFrameType,
   FieldType,
   MutableDataFrame,
+} from '@grafana/data';
+import type {
+  DataFrame,
+  DataQueryRequest,
+  DataQueryResponse,
+  DataSourceInstanceSettings,
+  DataSourceWithToggleableQueryFiltersSupport,
+  Labels,
+  QueryFilterOptions,
+  ToggleFilterAction,
 } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
 import { firstValueFrom, from, map, mergeMap, toArray } from 'rxjs';
@@ -17,6 +23,7 @@ import { OchiApiLine, OchiDataSourceOptions, OchiQuery, OchiQueryResponse, defau
 const timeKey = '_time';
 const timestampFieldName = 'timestamp';
 const bodyFieldName = 'body';
+const labelsFieldName = 'labels';
 
 function normalizeQuery(query: OchiQuery): OchiQuery {
   return {
@@ -33,7 +40,7 @@ function stringKeys(line: OchiApiLine): string[] {
 
 function lineFieldNames(lines: OchiApiLine[]): string[] {
   return [...new Set(lines.flatMap(stringKeys))]
-    .filter((key) => key !== timeKey && key !== timestampFieldName && key !== bodyFieldName)
+    .filter((key) => key !== timeKey && key !== timestampFieldName && key !== bodyFieldName && key !== labelsFieldName)
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -51,6 +58,23 @@ function lineMessage(line: OchiApiLine): string {
   return JSON.stringify(line);
 }
 
+function lineLabels(line: OchiApiLine): Labels {
+  const labels: Labels = {};
+  for (const [key, value] of Object.entries(line)) {
+    if (
+      typeof value === 'string' &&
+      key !== timeKey &&
+      key !== timestampFieldName &&
+      key !== bodyFieldName &&
+      key !== labelsFieldName
+    ) {
+      labels[key] = value;
+    }
+  }
+
+  return labels;
+}
+
 function tenantHeaders(tenantId: string): Record<string, string> {
   return tenantId ? { 'X-Scope-OrgID': tenantId } : {};
 }
@@ -64,7 +88,10 @@ function queryWithTimeRange(query: string, options: DataQueryRequest<OchiQuery>)
   return `[${options.range.from.toISOString()},${options.range.to.toISOString()}] ${payload}`;
 }
 
-export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> {
+export class DataSource
+  extends DataSourceApi<OchiQuery, OchiDataSourceOptions>
+  implements DataSourceWithToggleableQueryFiltersSupport<OchiQuery>
+{
   private readonly baseUrl: string;
   private readonly tenantId: string;
 
@@ -108,6 +135,7 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
             fields: [
               { name: timestampFieldName, type: FieldType.time },
               { name: bodyFieldName, type: FieldType.string },
+              { name: labelsFieldName, type: FieldType.other },
               ...fields.map((name) => ({ name, type: FieldType.string })),
             ],
             meta: {
@@ -123,6 +151,7 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
             frame.add({
               [timestampFieldName]: lineTime(line),
               [bodyFieldName]: lineMessage(line),
+              [labelsFieldName]: lineLabels(line),
               ...Object.fromEntries(fields.map((name) => [name, line[name] ?? ''])),
             });
           }
@@ -135,6 +164,47 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
     );
 
     return data;
+  }
+
+  toggleQueryFilter(query: OchiQuery, filter: ToggleFilterAction): OchiQuery {
+    const key = filter.options.key?.trim();
+    const value = filter.options.value?.trim();
+    if (!key || !value) {
+      return query;
+    }
+
+    const op = filter.type === 'FILTER_FOR' ? '=' : '!=';
+    const oppositeOp = op === '=' ? '!=' : '=';
+    const fieldFilters = query.fieldFilters ?? [];
+    const matchingIndex = fieldFilters.findIndex((fieldFilter) => fieldFilter.key === key && fieldFilter.value === value);
+
+    if (matchingIndex >= 0 && fieldFilters[matchingIndex].op === op) {
+      return queryWithBuiltString({
+        ...query,
+        fieldFilters: fieldFilters.filter((_, index) => index !== matchingIndex),
+      });
+    }
+
+    if (matchingIndex >= 0 && fieldFilters[matchingIndex].op === oppositeOp) {
+      const nextFieldFilters = [...fieldFilters];
+      nextFieldFilters[matchingIndex] = { key, value, op };
+      return queryWithBuiltString({ ...query, fieldFilters: nextFieldFilters });
+    }
+
+    return queryWithBuiltString({
+      ...query,
+      fieldFilters: [...fieldFilters, { key, value, op }],
+    });
+  }
+
+  queryHasFilter(query: OchiQuery, filter: QueryFilterOptions): boolean {
+    const key = filter.key?.trim();
+    const value = filter.value?.trim();
+    if (!key || !value) {
+      return false;
+    }
+
+    return (query.fieldFilters ?? []).some((fieldFilter) => fieldFilter.key === key && fieldFilter.value === value);
   }
 
   async testDatasource() {
@@ -165,4 +235,38 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
       };
     }
   }
+}
+
+function queryValue(value: string): string {
+  return /^[A-Za-z0-9_.:/-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+function compactFilters(filters?: OchiQuery['fieldFilters']) {
+  return (filters ?? [])
+    .map((filter) => ({
+      key: filter.key.trim(),
+      op: filter.op,
+      value: filter.value.trim(),
+    }))
+    .filter((filter) => filter.key && filter.value);
+}
+
+function filterExpression(filters?: OchiQuery['fieldFilters']): string {
+  return compactFilters(filters)
+    .map((filter) => `${filter.key}${filter.op}${queryValue(filter.value)}`)
+    .join(' AND ');
+}
+
+function buildQuery(query: OchiQuery): string {
+  const tags = filterExpression(query.tagFilters);
+  const fields = filterExpression(query.fieldFilters);
+
+  return [tags ? `{${tags}}` : '', fields ? `(${fields})` : ''].filter(Boolean).join(' ');
+}
+
+function queryWithBuiltString(query: OchiQuery): OchiQuery {
+  return {
+    ...query,
+    query: buildQuery(query),
+  };
 }
