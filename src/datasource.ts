@@ -5,28 +5,18 @@ import {
   DataQueryResponse,
   DataSourceApi,
   DataSourceInstanceSettings,
+  DataFrameType,
   FieldType,
   MutableDataFrame,
-  dateTime,
 } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
 import { firstValueFrom, from, map, mergeMap, toArray } from 'rxjs';
 
-import { OchiApiField, OchiApiLine, OchiDataSourceOptions, OchiQuery, defaultQuery } from './types';
+import { OchiApiLine, OchiDataSourceOptions, OchiQuery, OchiQueryResponse, defaultQuery } from './types';
 
-function nsToMs(ns: number): number {
-  return Math.floor(ns / 1_000_000);
-}
-
-function fieldValue(lineFields: OchiApiField[], key: string): string {
-  const found = lineFields.find((item) => item.key === key);
-  return found?.value ?? '';
-}
-
-function messageValue(lineFields: OchiApiField[]): string {
-  const empty = lineFields.find((item) => item.key === '');
-  return empty?.value ?? '';
-}
+const timeKey = '_time';
+const timestampFieldName = 'timestamp';
+const bodyFieldName = 'body';
 
 function normalizeQuery(query: OchiQuery): OchiQuery {
   return {
@@ -35,12 +25,53 @@ function normalizeQuery(query: OchiQuery): OchiQuery {
   };
 }
 
+function stringKeys(line: OchiApiLine): string[] {
+  return Object.entries(line)
+    .filter(([, value]) => typeof value === 'string')
+    .map(([key]) => key);
+}
+
+function lineFieldNames(lines: OchiApiLine[]): string[] {
+  return [...new Set(lines.flatMap(stringKeys))]
+    .filter((key) => key !== timeKey && key !== timestampFieldName && key !== bodyFieldName)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function lineTime(line: OchiApiLine): number {
+  const time = line[timeKey];
+  if (!time) {
+    return 0;
+  }
+
+  const millis = Date.parse(time);
+  return Number.isFinite(millis) ? millis : 0;
+}
+
+function lineMessage(line: OchiApiLine): string {
+  return JSON.stringify(line);
+}
+
+function tenantHeaders(tenantId: string): Record<string, string> {
+  return tenantId ? { 'X-Scope-OrgID': tenantId } : {};
+}
+
+function queryWithTimeRange(query: string, options: DataQueryRequest<OchiQuery>): string {
+  const payload = query.trim();
+  if (!payload || payload.startsWith('[')) {
+    return payload;
+  }
+
+  return `[${options.range.from.toISOString()},${options.range.to.toISOString()}] ${payload}`;
+}
+
 export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> {
   private readonly baseUrl: string;
+  private readonly tenantId: string;
 
   constructor(instanceSettings: DataSourceInstanceSettings<OchiDataSourceOptions>) {
     super(instanceSettings);
     this.baseUrl = instanceSettings.url ?? '';
+    this.tenantId = instanceSettings.jsonData.tenantId?.trim() ?? '';
   }
 
   async query(options: DataQueryRequest<OchiQuery>): Promise<DataQueryResponse> {
@@ -52,36 +83,35 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
             return null;
           }
 
-          const payload = query.query.trim();
+          const payload = queryWithTimeRange(query.query, options);
           if (!payload) {
             return null;
           }
 
-          const lines = await firstValueFrom(
-            getBackendSrv().fetch<OchiApiLine[]>({
+          const response = await firstValueFrom(
+            getBackendSrv().fetch<OchiQueryResponse>({
               method: 'POST',
               url: `${this.baseUrl}/query`,
               data: payload,
               headers: {
                 'content-type': 'application/loql',
+                ...tenantHeaders(this.tenantId),
               },
-            }),
+            })
           );
 
-          const rows = lines.data;
-          const displayFieldNames = [...new Set(rows.flatMap((row) => row.fields.map((field) => field.key)))]
-            .filter((key) => key.length > 0)
-            .sort((a, b) => a.localeCompare(b));
-
+          const lines = response.data.lines ?? [];
+          const fields = lineFieldNames(lines);
           const frame = new MutableDataFrame({
             refId: target.refId,
             name: target.refId,
             fields: [
-              { name: 'Time', type: FieldType.time },
-              { name: 'Line', type: FieldType.string },
-              ...displayFieldNames.map((key) => ({ name: key, type: FieldType.string })),
+              { name: timestampFieldName, type: FieldType.time },
+              { name: bodyFieldName, type: FieldType.string },
+              ...fields.map((name) => ({ name, type: FieldType.string })),
             ],
             meta: {
+              type: DataFrameType.LogLines,
               preferredVisualisationType: 'logs',
               custom: {
                 app: options.app ?? CoreApp.Unknown,
@@ -89,19 +119,19 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
             },
           });
 
-          for (const row of rows) {
+          for (const line of lines) {
             frame.add({
-              Time: dateTime(nsToMs(row.timestampNs)).toDate(),
-              Line: messageValue(row.fields),
-              ...Object.fromEntries(displayFieldNames.map((key) => [key, fieldValue(row.fields, key)])),
+              [timestampFieldName]: lineTime(line),
+              [bodyFieldName]: lineMessage(line),
+              ...Object.fromEntries(fields.map((name) => [name, line[name] ?? ''])),
             });
           }
 
           return frame;
         }),
         toArray(),
-        map((frames) => ({ data: frames.filter((frame): frame is DataFrame => frame !== null) })),
-      ),
+        map((frames) => ({ data: frames.filter((frame): frame is DataFrame => frame !== null) }))
+      )
     );
 
     return data;
@@ -112,8 +142,9 @@ export class DataSource extends DataSourceApi<OchiQuery, OchiDataSourceOptions> 
       const resp = await firstValueFrom(
         getBackendSrv().fetch({
           method: 'GET',
-          url: `${this.baseUrl}/insert/loki/ready`,
-        }),
+          url: `${this.baseUrl}/ingest/loki/ready`,
+          headers: tenantHeaders(this.tenantId),
+        })
       );
 
       if (resp.status === 200) {

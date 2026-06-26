@@ -42,8 +42,10 @@ Provisioned datasource points to:
 
 Your Ochi server should be listening on host port `9014` and serving:
 
-- `GET /insert/loki/ready`
-- `POST /query`
+- `GET /ingest/loki/ready`
+- `POST /query` with `Content-Type: application/loql`
+
+Set `Tenant ID` in the datasource config only when queries should send `X-Scope-OrgID`.
 
 ## What gets provisioned
 
